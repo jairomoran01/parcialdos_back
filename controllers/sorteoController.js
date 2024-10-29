@@ -4,6 +4,8 @@ const User = require('../models/User');
 const Admin = require('../models/Admin');
 const Codigo = require('../models/Codigo');
 const UserInfo = require('../models/UserInfo');
+const Numero = require('../models/Numero');
+const NumeroNoGanador = require('../models/NumeroNoGanador');
 const Intento = require('../models/Intento');
 
 // Configura el secreto para JWT
@@ -122,6 +124,12 @@ const registrarCodigo = async (req, res) => {
     }
 
     try {
+        // Verifica si el código ya está registrado
+        const existingCodigo = await Codigo.findOne({ codigo });
+        if (existingCodigo) {
+            return res.status(400).json({ message: 'El código ya está registrado' });
+        }
+
         const nuevoCodigo = new Codigo({
             codigo,
             premio: 'Premio pendiente',
@@ -137,38 +145,44 @@ const registrarCodigo = async (req, res) => {
     }
 };
 
-const validarCodigo = async (req, res) => {
-    const { codigo } = req.body;
+const validarNumero = async (req, res) => {
+    const { numero, userId } = req.body;
 
     try {
-        // Buscar en la colección de números ganadores
-        const numeroGanador = await Numero.findOne({ numero: codigo });
+        // Verifica si el número está en la colección de ganadores
+        const numeroGanador = await Numero.findOne({ numero });
 
         if (numeroGanador) {
-            if (numeroGanador.estado === 'libre') {
-                // Marcar el número como quemado
-                numeroGanador.estado = 'quemado';
-                await numeroGanador.save();
-
-                return res.status(200).json({
-                    message: '¡Felicidades! Ganaste.',
-                    premio: numeroGanador.premio,
-                });
-            } else {
-                return res.status(400).json({ message: 'Este número ya ha sido reclamado.' });
+            // Si el número ya fue reclamado
+            if (numeroGanador.estado !== 'libre') {
+                return res.status(400).json({ message: 'Este número ya ha sido registrado y no está disponible' });
             }
+
+            // Actualiza el número ganador como "reclamado" por el usuario
+            numeroGanador.estado = userId;
+            numeroGanador.fecha = new Date();
+            numeroGanador.hora = new Date().toLocaleTimeString();
+
+            await numeroGanador.save();
+
+            return res.status(200).json({
+                message: '¡Felicidades! Has ganado',
+                premio: numeroGanador.premio
+            });
         }
 
-        // Buscar en la colección de números no ganadores
-        const numeroNoGanador = await NumeroNoGanador.findOne({ numero: codigo });
+        // Si no está en los ganadores, verifica en la colección de números no ganadores
+        const numeroNoGanador = await NumeroNoGanador.findOne({ numero });
 
         if (numeroNoGanador) {
-            return res.status(200).json({ message: 'Lo siento, no ganaste.' });
+            return res.status(200).json({ message: 'No ganaste esta vez' });
         }
 
-        return res.status(400).json({ message: 'El número no es válido.' });
+        // Si el número no se encuentra en ninguna colección
+        return res.status(404).json({ message: 'Número no encontrado' });
+
     } catch (error) {
-        console.error('Error al validar código:', error);
+        console.error('Error al validar el número:', error);
         res.status(500).json({ message: 'Error en el servidor' });
     }
 };
@@ -179,5 +193,5 @@ module.exports = {
     createAdmin,
     getCodigos,
     registrarCodigo,
-    validarCodigo // Exportar la función
+    validarNumero // Exportar la función
 };
