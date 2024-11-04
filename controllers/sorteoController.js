@@ -191,11 +191,37 @@ const getCodigosRegistrados = async (req, res) => {
 };
 
 
+const getWinners = async (req, res) => {
+    try {
+        const winners = await Codigo.find({ premio: { $ne: 'No ganador' } })
+            .populate('userId')
+            .sort({ fecha: -1 });
+
+        const formattedWinners = await Promise.all(winners.map(async (winner) => {
+            const userInfo = await UserInfo.findOne({ user_id: winner.userId._id });
+            return {
+                fecha: winner.fecha,
+                cedula: userInfo ? userInfo.cedula : 'N/A',
+                telefono: userInfo ? userInfo.celular : 'N/A',
+                codigo: winner.codigo,
+                premio: winner.premio
+            };
+        }));
+
+        res.json(formattedWinners);
+    } catch (error) {
+        console.error('Error al obtener ganadores:', error);
+        res.status(500).json({ message: 'Error al obtener ganadores' });
+    }
+};
+
+
+
 module.exports = {
     login,
     createAccount,
     createAdmin,
     registrarCodigo,
-    getCodigosRegistrados
-         // Exportar la función
+    getCodigosRegistrados,
+    getWinners     // Exportar la función
 };
