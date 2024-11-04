@@ -46,14 +46,14 @@ const createAccount = async (req, res) => {
     const { email, password, nombre, celular, cedula, fechaNacimiento, ciudad } = req.body;
 
     if (!email || !password || !nombre || !celular || !cedula || !fechaNacimiento || !ciudad) {
-        return res.status(400).json({ message: 'Todos los campos son obligatorios' });
+        return res.status(400).json({ success: false, message: 'Todos los campos son obligatorios' });
     }
 
     try {
         const existingUser = await User.findOne({ email });
 
         if (existingUser) {
-            return res.status(400).json({ message: 'El usuario ya existe' });
+            return res.status(400).json({ success: false, message: 'El usuario ya existe' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -74,10 +74,10 @@ const createAccount = async (req, res) => {
         await user.save();
         await userInfo.save();
 
-        res.status(201).json({ message: 'Cuenta creada con éxito' });
+        res.status(201).json({ success: true, message: 'Cuenta creada con éxito' });
     } catch (error) {
         console.error('Error al crear cuenta:', error);
-        res.status(500).json({ message: 'Error en el servidor' });
+        res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 };
 
@@ -104,94 +104,98 @@ const createAdmin = async (req, res) => {
     }
 };
 
-// Obtener todos los códigos
-const getCodigos = async (req, res) => {
-    try {
-        const codigos = await Codigo.find();
-        res.status(200).json(codigos);
-    } catch (error) {
-        console.error('Error al obtener códigos:', error);
-        res.status(500).json({ message: 'Error en el servidor' });
-    }
-};
 
-// Registrar un nuevo código
 const registrarCodigo = async (req, res) => {
     const { codigo } = req.body;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-    if (!/^\d{3}$/.test(codigo)) {
-        return res.status(400).json({ message: 'El código debe ser un número de 3 dígitos entre 000 y 999' });
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'No token provided' });
     }
 
     try {
-        // Verifica si el código ya está registrado
-        const existingCodigo = await Codigo.findOne({ codigo });
-        if (existingCodigo) {
-            return res.status(400).json({ message: 'El código ya está registrado' });
+        const decodedToken = jwt.verify(token, jwtSecret);
+        const userId = decodedToken.id;
+
+        // Check if the code is a winning number
+        let numero = await Numero.findOne({ numero: parseInt(codigo) });
+
+        if (numero) {
+            if (numero.estado === 'libre') {
+                // Update the winning number
+                numero.estado = 'ocupado';
+                numero.userId = userId;
+                await numero.save();
+
+                // Create a new Codigo entry
+                const nuevoCodigo = new Codigo({
+                    codigo: numero.numero,
+                    premio: numero.premio,
+                    estado: 'ocupado',
+                    userId: userId,
+                    fecha: new Date()
+                });
+                await nuevoCodigo.save();
+
+                return res.status(200).json({
+                    success: true,
+                    message: '¡Felicidades! Has ganado.',
+                    premio: numero.premio,
+                    codigo: numero.numero,
+                    fecha: nuevoCodigo.fecha,
+                    hora: nuevoCodigo.fecha.toLocaleTimeString()
+                });
+            } else {
+                return res.status(400).json({ success: false, message: 'Este código ya ha sido registrado.' });
+            }
+        } else {
+            // Create a new Codigo entry for non-winning number
+            const nuevoCodigo = new Codigo({
+                codigo: parseInt(codigo),
+                premio: 'No ganador',
+                estado: 'ocupado',
+                userId: userId,
+                fecha: new Date()
+            });
+            await nuevoCodigo.save();
+
+            return res.status(200).json({ success: false, message: 'Lo siento, no ganaste esta vez.' });
         }
-
-        const nuevoCodigo = new Codigo({
-            codigo,
-            premio: 'Premio pendiente',
-            estado: 'libre',
-            fecha: new Date()
-        });
-
-        await nuevoCodigo.save();
-        res.status(201).json({ message: 'Código registrado con éxito', nuevoCodigo });
     } catch (error) {
         console.error('Error al registrar código:', error);
-        res.status(500).json({ message: 'Error en el servidor' });
+        res.status(500).json({ success: false, message: 'Error al procesar la solicitud.' });
     }
 };
 
-const validarNumero = async (req, res) => {
-    const { numero, userId } = req.body;
+
+// Add this new function to get registered codes for a user
+const getCodigosRegistrados = async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
 
     try {
-        // Verifica si el número está en la colección de ganadores
-        const numeroGanador = await Numero.findOne({ numero });
+        const decodedToken = jwt.verify(token, jwtSecret);
+        const userId = decodedToken.id;
 
-        if (numeroGanador) {
-            // Si el número ya fue reclamado
-            if (numeroGanador.estado !== 'libre') {
-                return res.status(400).json({ message: 'Este número ya ha sido registrado y no está disponible' });
-            }
-
-            // Actualiza el número ganador como "reclamado" por el usuario
-            numeroGanador.estado = userId;
-            numeroGanador.fecha = new Date();
-            numeroGanador.hora = new Date().toLocaleTimeString();
-
-            await numeroGanador.save();
-
-            return res.status(200).json({
-                message: '¡Felicidades! Has ganado',
-                premio: numeroGanador.premio
-            });
-        }
-
-        // Si no está en los ganadores, verifica en la colección de números no ganadores
-        const numeroNoGanador = await NumeroNoGanador.findOne({ numero });
-
-        if (numeroNoGanador) {
-            return res.status(200).json({ message: 'No ganaste esta vez' });
-        }
-
-        // Si el número no se encuentra en ninguna colección
-        return res.status(404).json({ message: 'Número no encontrado' });
-
+        const codigosRegistrados = await Codigo.find({ userId: userId });
+        res.status(200).json(codigosRegistrados);
     } catch (error) {
-        console.error('Error al validar el número:', error);
-        res.status(500).json({ message: 'Error en el servidor' });
+        console.error('Error al obtener códigos registrados:', error);
+        res.status(500).json({ message: 'Error al obtener códigos registrados' });
     }
 };
+
 
 module.exports = {
     login,
     createAccount,
     createAdmin,
-    getCodigos,
     registrarCodigo,
-    validarNumero // Exportar la función
+    getCodigosRegistrados
+         // Exportar la función
 };

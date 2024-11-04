@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Codigo = require('../models/Codigo'); // Asegúrate de que la ruta sea correcta
+const Numero = require('../models/Numero'); // Asegúrate de que la ruta sea correcta
 
 const connectDB = async () => {
     try {
@@ -31,41 +31,34 @@ function generateUniqueRandomNumbers(count, min = 0, max = 999) {
 // Función para inicializar la colección "números" con números aleatorios
 async function initializeCodigos() {
     try {
-        // Elimina todos los registros previos en "números"
-        await Codigo.deleteMany();
+        const existingCount = await Numero.countDocuments();
+        if (existingCount === 0) {
+            const randomNumbers = generateUniqueRandomNumbers(400);
+            const numerosGanadores = [];
+            const premios = [
+                { cantidad: 50, premio: '1 millón' },
+                { cantidad: 150, premio: '50 mil' },
+                { cantidad: 200, premio: '10 mil' }
+            ];
 
-        // Genera 400 números aleatorios y únicos entre 000 y 999
-        const randomNumbers = generateUniqueRandomNumbers(400);
-
-        // Crear los datos para los 400 números ganadores de manera aleatoria
-        const numerosGanadores = [];
-
-        // Asignación de premios
-        const premios = [
-            { cantidad: 50, premio: '1 millón de pesos' },
-            { cantidad: 150, premio: '50 mil pesos' },
-            { cantidad: 200, premio: '10 mil pesos' }
-        ];
-
-        let index = 0;
-        for (const { cantidad, premio } of premios) {
-            for (let i = 0; i < cantidad; i++) {
-                numerosGanadores.push({
-                    codigo: randomNumbers[index++],
-                    premio: premio,
-                    estado: 'libre',
-                    fecha: null,
-                    hora: null
-                });
+            let index = 0;
+            for (const { cantidad, premio } of premios) {
+                for (let i = 0; i < cantidad; i++) {
+                    numerosGanadores.push({
+                        numero: parseInt(randomNumbers[index++]),
+                        premio,
+                        estado: 'libre',
+                        fecha: new Date(),
+                        hora: new Date().toLocaleTimeString()
+                    });
+                }
             }
+
+            await Numero.insertMany(numerosGanadores);
+            console.log('Winning numbers initialized');
         }
-
-        // Insertar los datos en la colección
-        await Codigo.insertMany(numerosGanadores);
-
-        console.log('Datos inicializados en la colección "números" con números aleatorios');
     } catch (error) {
-        console.error('Error al inicializar datos:', error);
+        console.error('Error initializing winning numbers:', error);
     }
 }
 
